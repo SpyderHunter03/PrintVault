@@ -1,0 +1,21 @@
+{
+  "name": "printvault",
+  "version": "1.0.0",
+  "description": "Self-hosted 3D print file library with in-browser viewer, print tracking, and URL import",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "express": "^4.21.2",
+    "fflate": "^0.8.2",
+    "multer": "^1.4.5-lts.2",
+    "three": "^0.169.0"
+  },
+  "license": "MIT"
+}

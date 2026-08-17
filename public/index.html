@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PrintVault</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧊</text></svg>">
+<link rel="stylesheet" href="/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "/vendor/three/build/three.module.js",
+    "three/addons/": "/vendor/three/examples/jsm/",
+    "fflate": "/vendor/fflate/esm/browser.js"
+  }
+}
+</script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/">🧊 PrintVault</a>
+  <div class="topbar-actions">
+    <input id="search" type="search" placeholder="Search models…" autocomplete="off">
+    <select id="filter-printed">
+      <option value="">All</option>
+      <option value="1">Printed</option>
+      <option value="0">Not printed</option>
+    </select>
+    <button id="btn-import" class="btn btn-secondary">Import URL</button>
+    <button id="btn-new" class="btn btn-primary">+ New model</button>
+  </div>
+</header>
+
+<main id="view"></main>
+
+<!-- Import dialog -->
+<dialog id="dlg-import">
+  <form method="dialog" class="dlg-body">
+    <h2>Import from URL</h2>
+    <p class="muted">Paste a link from Thingiverse, Printables, MakerWorld, Cults3D, or a direct
+      link to an <code>.stl</code> / <code>.3mf</code> / <code>.obj</code> / <code>.gcode</code> / <code>.zip</code> file.</p>
+    <input id="import-url" type="url" placeholder="https://…" required>
+    <div id="import-status" class="muted"></div>
+    <div class="dlg-actions">
+      <button value="cancel" class="btn btn-secondary" formnovalidate>Cancel</button>
+      <button id="import-go" value="default" class="btn btn-primary">Import</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- New model dialog -->
+<dialog id="dlg-new">
+  <form method="dialog" class="dlg-body">
+    <h2>New model</h2>
+    <input id="new-title" type="text" placeholder="Title" required>
+    <input id="new-url" type="url" placeholder="Source URL (optional)">
+    <div class="dlg-actions">
+      <button value="cancel" class="btn btn-secondary" formnovalidate>Cancel</button>
+      <button value="default" class="btn btn-primary">Create</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
