@@ -16,41 +16,35 @@ A self-hosted library for your 3D print files. Store your STL/3MF/OBJ/GCODE file
 - Single SQLite database + flat file storage — trivial to back up
 - No accounts, no cloud, no external services required
 
-## 🚀 Deploy on Proxmox VE (one-liner)
+## 🚀 Deploy on Proxmox VE
 
-Run this **on your Proxmox host** (as root). It creates a Debian 12 LXC and installs everything — same experience as the community Proxmox VE Helper-Scripts:
+PrintVault ships genuine [community-scripts](https://github.com/community-scripts) format scripts (`ct/` + `install/` + `json/`, powered by the official `community-scripts/core` engine). Run this **on your Proxmox host** (as root):
 
 ```bash
+COMMUNITY_SCRIPTS_URL=https://raw.githubusercontent.com/SpyderHunter03/PrintVault/main \
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/SpyderHunter03/PrintVault/main/ct/printvault.sh)"
 ```
 
-Defaults: unprivileged LXC, 2 vCPU / 1 GB RAM / 8 GB disk / DHCP, auto-picked container ID. When it finishes it prints the URL — open `http://<container-ip>:3000`.
+You get the full community-scripts experience — the whiptail dialogs, default/advanced settings, and container creation — with the app pulled from this repository's latest GitHub release. Defaults: unprivileged LXC, 2 vCPU / 1 GB RAM / 8 GB disk, Debian 13, DHCP. When it finishes, open `http://<container-ip>:3000`.
 
-Override any default with environment variables:
+Alternative (identical result, no env var needed — the engine detects the repo from the git origin):
 
 ```bash
-CTID=210 HOSTNAME=printvault DISK=16 RAM=2048 CORES=2 BRIDGE=vmbr0 \
-STORAGE=local-lvm NET=192.168.1.50/24,gw=192.168.1.1 \
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/SpyderHunter03/PrintVault/main/ct/printvault.sh)"
+git clone https://github.com/SpyderHunter03/PrintVault.git
+cd PrintVault && bash ct/printvault.sh
 ```
-
-Tip: give the container more disk (`DISK=32` or more) if you hoard a lot of models — the files live inside the container at `/opt/printvault/data`.
 
 ### Updating
 
-Re-run the installer inside the container — your data is never touched:
-
-```bash
-pct exec <CTID> -- bash -c "$(curl -fsSL https://raw.githubusercontent.com/SpyderHunter03/PrintVault/main/install/printvault-install.sh)"
-```
+Run the same command again on the Proxmox host and choose **Update** when prompted, or run the script from inside the container. Updates install the latest GitHub release; your models, photos and database live in `/opt/printvault-data` and are never touched.
 
 ## Installing on any Debian/Ubuntu machine (no Proxmox)
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/SpyderHunter03/PrintVault/main/install/printvault-install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/SpyderHunter03/PrintVault/main/misc/standalone-install.sh)"
 ```
 
-Same result: Node.js 22, the app in `/opt/printvault`, and a `printvault` systemd service on port 3000. Re-running it later updates in place. (Air-gapped? `bash printvault-install.sh /path/to/source-tarball.tar.gz` works too.)
+Same result: Node.js 22, the app in `/opt/printvault`, data in `/opt/printvault-data`, and a `printvault` systemd service on port 3000. Re-running it later updates in place.
 
 ## Enabling full Thingiverse imports
 
@@ -70,18 +64,17 @@ Now pasting a `thingiverse.com/thing:XXXX` link imports the title, description, 
 | Env var | Default | Purpose |
 |---|---|---|
 | `PORT` | `3000` | HTTP port |
-| `DATA_DIR` | `/opt/printvault/data` (installer) or `./data` | Where the SQLite DB and files live |
+| `DATA_DIR` | `/opt/printvault-data` (installed) or `./data` (dev) | Where the SQLite DB and files live |
 | `THINGIVERSE_TOKEN` | *(unset)* | Enables full Thingiverse imports |
-| `PRINTVAULT_REPO` / `PRINTVAULT_BRANCH` | this repo / `main` | Where the deploy scripts pull the app from |
 
 ## Backups
 
-Everything lives in `DATA_DIR`:
+Everything lives in `DATA_DIR` (`/opt/printvault-data` in the LXC):
 
 - `printvault.db` — the SQLite database (titles, settings, notes, printed status)
 - `files/` — every model file, gcode, and photo
 
-From the Proxmox host: `pct exec <CTID> -- tar -czf - /opt/printvault/data > printvault-backup.tar.gz` — or simply back up the whole LXC with vzdump/PBS like any other container.
+From the Proxmox host: `pct exec <CTID> -- tar -czf - /opt/printvault-data > printvault-backup.tar.gz` — or simply back up the whole LXC with vzdump/PBS like any other container.
 
 ## Running from source (development)
 
@@ -94,8 +87,10 @@ npm start          # http://localhost:3000, data in ./data
 
 ## Repo layout
 
-- `ct/printvault.sh` — Proxmox host script (creates the LXC, helper-script style)
-- `install/printvault-install.sh` — in-container/standalone installer + updater
+- `ct/printvault.sh` — Proxmox container script (community-scripts format, sources the official `core` engine)
+- `install/printvault-install.sh` — in-container installer (community-scripts function library)
+- `json/printvault.json` — app metadata (community-scripts website format)
+- `misc/standalone-install.sh` — plain Debian/Ubuntu installer (no Proxmox required)
 - `server.js`, `src/` — Express + SQLite backend
 - `public/` — frontend (vanilla JS + Three.js viewer)
 

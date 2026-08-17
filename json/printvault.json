@@ -1,0 +1,50 @@
+{
+  "name": "PrintVault",
+  "slug": "printvault",
+  "categories": [
+    0
+  ],
+  "date_created": "2026-08-17",
+  "type": "ct",
+  "updateable": true,
+  "privileged": false,
+  "architectures": ["amd64"],
+  "interface_port": 3000,
+  "documentation": "https://github.com/SpyderHunter03/PrintVault",
+  "website": "https://github.com/SpyderHunter03/PrintVault",
+  "repository": "https://github.com/SpyderHunter03/PrintVault",
+  "logo": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/webp/printvault.webp",
+  "description": "PrintVault is a self-hosted library for your 3D print files. Store STL/3MF/OBJ/GCODE files, preview models in the browser with a Three.js viewer, track what you have printed, keep photos of finished prints, and save the printer settings, notes and source URL for every model. Paste a link from Thingiverse, Printables, MakerWorld or Cults3D and PrintVault imports the metadata for you.",
+  "install_methods": [
+    {
+      "type": "default",
+      "script": "ct/printvault.sh",
+      "config_path": "/etc/systemd/system/printvault.service",
+      "resources": {
+        "cpu": 2,
+        "ram": 1024,
+        "hdd": 8,
+        "os": "Debian",
+        "version": "13"
+      }
+    }
+  ],
+  "default_credentials": {
+    "username": null,
+    "password": null
+  },
+  "notes": [
+    {
+      "text": "PrintVault has no built-in authentication and is intended for a trusted LAN. Put it behind a reverse proxy with auth if you expose it externally.",
+      "type": "warning"
+    },
+    {
+      "text": "Optional: add a free Thingiverse app token (THINGIVERSE_TOKEN) to /etc/systemd/system/printvault.service to enable full Thingiverse imports including model files and photos.",
+      "type": "info"
+    },
+    {
+      "text": "Your models, photos and database live in /opt/printvault-data and are preserved across updates.",
+      "type": "info"
+    }
+  ]
+}
