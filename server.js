@@ -15,7 +15,15 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 
 // ---------- static ----------
-app.use(express.static(path.join(__dirname, 'public')));
+// `no-cache` means "revalidate before reuse", not "do not store": browsers still
+// get a cheap 304, but they can never quietly serve a stale app file after an
+// upgrade. Without it a cached viewer.js survives a release and the app runs a
+// mix of old and new code.
+app.use(
+  express.static(path.join(__dirname, 'public'), {
+    setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+  })
+);
 app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules', 'three')));
 app.use('/vendor/fflate', express.static(path.join(__dirname, 'node_modules', 'fflate')));
 

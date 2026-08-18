@@ -104,22 +104,36 @@ export class ModelViewer {
     } else if (ext === '3mf') {
       const report = {};
       object = await load3MF(url, report);
-      this._lastReport = summarise(report);
+      // ThreeMFLoader never emits vertex normals, and a lit material without
+      // them renders solid black, so every material here has to be flat shaded
+      // — that derives a normal per face while rendering, and matches how STL
+      // files look. Careful: a *material array* has a truthy `.map`, because
+      // that is Array.prototype.map, so textures must be tested per material.
       const flat = material.clone();
       flat.flatShading = true;
+      const shade = (m) => {
+        if (!m || !m.map) return flat; // nothing worth keeping — use ours
+        const kept = m.clone();        // a texture from the file, keep it lit
+        kept.flatShading = true;
+        kept.needsUpdate = true;
+        return kept;
+      };
+      let meshes = 0;
+      let textured = 0;
       object.traverse((o) => {
         if (!o.isMesh) return;
-        // keep any textured material the loader built, otherwise use ours
-        if (!o.material || !o.material.map) o.material = material;
-        // ThreeMFLoader never emits vertex normals, and a lit material without
-        // them renders solid black. Flat shading derives one per face in the
-        // shader, which also matches how STL files look here.
-        if (!o.geometry.attributes.normal) {
-          o.material = o.material === material ? flat : o.material.clone();
-          o.material.flatShading = true;
-          o.material.needsUpdate = true;
+        meshes++;
+        if (Array.isArray(o.material)) {
+          o.material = o.material.map(shade);
+          if (o.material.some((m) => m !== flat)) textured++;
+        } else {
+          o.material = shade(o.material);
+          if (o.material !== flat) textured++;
         }
       });
+      report.meshes = meshes;
+      report.textured = textured;
+      this._lastReport = summarise(report);
     } else {
       throw new Error(`No preview available for .${ext} files`);
     }

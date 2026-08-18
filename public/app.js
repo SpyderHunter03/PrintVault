@@ -528,7 +528,9 @@ async function renderDetail(id) {
     const token = ++viewerLoadToken;
     try {
       if (!viewer) {
-        const { ModelViewer } = await import('/viewer.js');
+        // stamped with the version so an upgrade can never reuse a cached module
+        await versionReady;
+        const { ModelViewer } = await import(`/viewer.js${appVersion ? `?v=${appVersion}` : ''}`);
         if (token !== viewerLoadToken) return;
         viewer = new ModelViewer(document.getElementById('viewer'));
       }
@@ -641,16 +643,19 @@ dlgImport.querySelector('form').addEventListener('submit', async (e) => {
   }
 });
 
+let appVersion = '';
+
 async function showVersion() {
   const el = document.getElementById('app-version');
   try {
     const { version } = await api('/api/version');
+    appVersion = version;
     el.textContent = `v${version}`;
   } catch {
     el.remove(); // older backend, or the server is unreachable — no need to shout
   }
 }
 
-showVersion();
+const versionReady = showVersion();
 loadCollections();
 route();
