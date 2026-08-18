@@ -44,6 +44,20 @@ CREATE TABLE IF NOT EXISTS collections (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS prints (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  model_id INTEGER NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+  printed_on TEXT NOT NULL DEFAULT (date('now')),
+  success INTEGER NOT NULL DEFAULT 1,
+  printer TEXT DEFAULT '',
+  filament TEXT DEFAULT '',
+  duration TEXT DEFAULT '',
+  notes TEXT DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_prints_model ON prints(model_id, printed_on DESC);
+
 CREATE TABLE IF NOT EXISTS model_collections (
   model_id INTEGER NOT NULL REFERENCES models(id) ON DELETE CASCADE,
   collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,

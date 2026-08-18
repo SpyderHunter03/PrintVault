@@ -7,10 +7,11 @@ A self-hosted library for your 3D print files. Store your STL/3MF/OBJ/GCODE file
 - **In-browser 3D viewer** for `.stl`, `.obj`, and `.3mf` files (Three.js — rotate, zoom, pan, model dimensions shown), plus storage for `.gcode` and anything else. Multi-part slicer project `.3mf` files (Bambu Studio, OrcaSlicer, PrusaSlicer) are supported — they are flattened in the browser before rendering, which the stock Three.js loader cannot do on its own
 - **Multi-file items** — one item can hold any number of model files (multi-part prints); click any model file in the file list to highlight it and load it into the viewer
 - **Collections** — group items into collections (an item can be in several), filter the library by collection
-- **Print tracking** — a simple Printed / Not printed toggle with filtering
+- **Print history** — log every attempt with the date, printer, filament, how long it took, whether it worked and what went wrong. A successful entry marks the model printed, and the Printed / Not printed toggle and its library filter keep working as before
 - **Photos** — upload pictures of your finished prints, shown as a gallery; star one to make it the primary image used as the library thumbnail (otherwise the first photo is used)
 - **Library picture from the model itself** — no photo yet? Rotate the 3D preview to an angle you like and hit **📷 Use as thumbnail** to save that view as the model's picture
-- **Printer settings** — printer, filament, temps, layer height, infill, supports, print time, plus free-form notes
+- **Printer settings, filled in for you** — drop in a `.gcode` or `.3mf` from your slicer and PrintVault reads the printer, filament, temps, layer height, infill, supports and estimated time straight out of it. Understands PrusaSlicer, SuperSlicer, OrcaSlicer, Bambu Studio and Cura. Anything you have already typed is left alone; only blank fields get filled
+- **Free thumbnails from slicer files** — those same files carry a rendered preview image, which is saved as a photo and used as the library picture when the model has none yet
 - **Source URL** stored per model with a one-click link back
 - **URL import** — paste a link and PrintVault creates the entry for you:
   - **Direct file links** (`.stl` `.3mf` `.obj` `.gcode` `.zip`): downloaded automatically
@@ -102,4 +103,4 @@ npm start          # http://localhost:3000, data in ./data
 
 - Uploads are capped at 500 MB per file.
 - There is **no authentication** — it's designed for a trusted home LAN. If you want to expose it outside, put it behind a reverse proxy with auth (Authelia, basic auth on nginx, Tailscale, etc.).
-- GCODE files are stored and downloadable but not previewed.
+- GCODE files are stored and downloadable but not previewed, though their headers are read for printer settings and a preview image.

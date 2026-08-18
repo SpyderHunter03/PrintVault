@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #0f1115;
   --bg-2: #171a21;
   --bg-3: #1f242e;
@@ -338,6 +339,55 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
   text-align: center; padding: 3px 0; pointer-events: none;
 }
 
+/* ---------- print history ---------- */
+.print-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.print-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  grid-template-areas:
+    "result date  facts del"
+    ".      notes notes notes";
+  align-items: center;
+  gap: 2px 10px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.print-row.ok { border-left-color: var(--green); }
+.print-row.bad { border-left-color: var(--red); }
+.print-result { grid-area: result; font-weight: 700; }
+.print-row.ok .print-result { color: var(--green); }
+.print-row.bad .print-result { color: var(--red); }
+.print-date { grid-area: date; white-space: nowrap; font-weight: 600; }
+.print-facts {
+  grid-area: facts;
+  color: var(--muted);
+  font-size: .88em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.print-row .del-print { grid-area: del; }
+.print-notes { grid-area: notes; color: var(--muted); font-size: .88em; }
+
+.print-add {
+  display: grid;
+  grid-template-columns: auto auto 1fr 1fr 1fr;
+  gap: 8px;
+}
+.print-add input, .print-add select { min-width: 0; }
+.print-add #pr-notes { grid-column: 1 / 5; }
+.print-add button { grid-column: 5 / 6; }
+
 /* ---------- mobile ---------- */
 @media (max-width: 720px) {
   html, body { -webkit-text-size-adjust: 100%; }
@@ -403,6 +453,17 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
   .dropzone { padding: 18px 12px; }
   .gallery { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
   .gallery .shot .del, .gallery .shot .star { padding: 5px 9px; font-size: 14px; }
+
+  .print-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "result date  del"
+      "facts  facts facts"
+      "notes  notes notes";
+  }
+  .print-facts { white-space: normal; }
+  .print-add { grid-template-columns: 1fr 1fr; }
+  .print-add #pr-notes, .print-add button { grid-column: 1 / -1; }
 
   .settings-grid { grid-template-columns: 1fr; }
   .coll-list { max-height: none; }

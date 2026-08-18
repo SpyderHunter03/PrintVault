@@ -7,6 +7,7 @@ const multer = require('multer');
 
 const { db, FILES_DIR } = require('./src/db');
 const { importFromUrl, kindForExt, extOf, storedNameFor } = require('./src/importer');
+const { extractMetadata } = require('./src/metadata');
 const { version: APP_VERSION } = require('./package.json');
 
 const PORT = Number(process.env.PORT || 3000);
@@ -54,12 +55,25 @@ function rowToModel(row, withFiles = false) {
   model.cover_file_id = (pinned || images[0] || {}).id || null;
   model.cover_pinned = !!pinned;
   model.file_counts = files.reduce((acc, f) => ((acc[f.kind] = (acc[f.kind] || 0) + 1), acc), {});
+  const prints = db
+    .prepare('SELECT * FROM prints WHERE model_id = ? ORDER BY printed_on DESC, id DESC')
+    .all(row.id);
+  model.print_count = prints.length;
   model.collections = db
     .prepare(
       'SELECT c.id, c.name FROM collections c JOIN model_collections mc ON mc.collection_id = c.id WHERE mc.model_id = ? ORDER BY c.name'
     )
     .all(row.id);
   if (withFiles) {
+    model.prints = prints.map((p) => ({
+      id: p.id,
+      printed_on: p.printed_on,
+      success: !!p.success,
+      printer: p.printer,
+      filament: p.filament,
+      duration: p.duration,
+      notes: p.notes,
+    }));
     model.files = files.map((f) => ({
       id: f.id,
       kind: f.kind,
@@ -182,16 +196,76 @@ app.post('/api/models/:id/files', upload.array('files'), (req, res) => {
   const stmt = db.prepare(
     'INSERT INTO files (model_id, kind, original_name, stored_name, size) VALUES (?, ?, ?, ?, ?)'
   );
+  const added = [];
   for (const f of req.files || []) {
     // multer gives latin1-encoded originalname for some clients; normalize utf8
     const original = Buffer.from(f.originalname, 'latin1').toString('utf8');
     const kind = kindForExt(extOf(original));
     const info = stmt.run(row.id, kind, original, f.filename, f.size);
     inserted.push({ id: info.lastInsertRowid, kind, name: original, size: f.size });
+    added.push({ kind, original_name: original, stored_name: f.filename });
   }
   db.prepare(`UPDATE models SET updated_at=datetime('now') WHERE id=?`).run(row.id);
-  res.status(201).json({ files: inserted });
+  absorbFileMetadata(row.id, added);
+  res.status(201).json({ files: inserted, model: rowToModel(db.prepare('SELECT * FROM models WHERE id = ?').get(row.id), true) });
 });
+
+/**
+ * Read whatever the slicer left in freshly added gcode / 3mf files: fill in any
+ * printer settings the model does not already have, and adopt the embedded
+ * preview image if the model has no photo of its own yet. Never overwrites
+ * anything already there.
+ */
+function absorbFileMetadata(modelId, added) {
+  const row = db.prepare('SELECT * FROM models WHERE id = ?').get(modelId);
+  if (!row) return;
+
+  const settings = JSON.parse(row.settings || '{}');
+  let settingsChanged = false;
+  let preview = null;
+
+  for (const f of added) {
+    if (f.kind !== 'gcode' && f.kind !== 'model') continue;
+    const { settings: found, thumbnail } = extractMetadata(
+      path.join(FILES_DIR, f.stored_name),
+      f.original_name
+    );
+    for (const [key, value] of Object.entries(found)) {
+      if (value && !settings[key]) {
+        settings[key] = value;
+        settingsChanged = true;
+      }
+    }
+    if (!preview && thumbnail) preview = { buffer: thumbnail, from: f.original_name };
+  }
+
+  if (settingsChanged) {
+    db.prepare(`UPDATE models SET settings = ?, updated_at = datetime('now') WHERE id = ?`).run(
+      JSON.stringify(settings),
+      modelId
+    );
+  }
+
+  if (!preview) return;
+  const hasPhoto = db
+    .prepare("SELECT 1 FROM files WHERE model_id = ? AND kind = 'image' LIMIT 1")
+    .get(modelId);
+  if (hasPhoto) return; // the model already has a picture — leave it alone
+
+  const name = `${path.basename(preview.from, path.extname(preview.from))}-slicer-preview.png`;
+  const storedName = storedNameFor(name);
+  try {
+    fs.writeFileSync(path.join(FILES_DIR, storedName), preview.buffer);
+  } catch {
+    return;
+  }
+  const info = db
+    .prepare(
+      "INSERT INTO files (model_id, kind, original_name, stored_name, size) VALUES (?, 'image', ?, ?, ?)"
+    )
+    .run(modelId, name, storedName, preview.buffer.length);
+  db.prepare('UPDATE models SET cover_file_id = ? WHERE id = ?').run(info.lastInsertRowid, modelId);
+}
 
 function findFile(id) {
   return db.prepare('SELECT * FROM files WHERE id = ?').get(id);
@@ -220,6 +294,58 @@ app.delete('/api/files/:id', (req, res) => {
   db.prepare('UPDATE models SET cover_file_id = NULL WHERE cover_file_id = ?').run(f.id);
   fs.rm(path.join(FILES_DIR, f.stored_name), { force: true }, () => {});
   res.json({ ok: true });
+});
+
+// ---------- API: print history ----------
+function printFields(body, existing = {}) {
+  const b = body || {};
+  const date = String(b.printed_on ?? existing.printed_on ?? '').trim();
+  return {
+    printed_on: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10),
+    success: (b.success !== undefined ? b.success : existing.success ?? 1) ? 1 : 0,
+    printer: String(b.printer ?? existing.printer ?? '').slice(0, 200),
+    filament: String(b.filament ?? existing.filament ?? '').slice(0, 200),
+    duration: String(b.duration ?? existing.duration ?? '').slice(0, 100),
+    notes: String(b.notes ?? existing.notes ?? '').slice(0, 5000),
+  };
+}
+
+// a model counts as printed once anything has come off the bed successfully
+function syncPrintedFlag(modelId) {
+  const ok = db
+    .prepare('SELECT 1 FROM prints WHERE model_id = ? AND success = 1 LIMIT 1')
+    .get(modelId);
+  if (ok) db.prepare(`UPDATE models SET printed = 1, updated_at = datetime('now') WHERE id = ?`).run(modelId);
+}
+
+app.post('/api/models/:id/prints', (req, res) => {
+  const row = getModelOr404(req.params.id, res);
+  if (!row) return;
+  const p = printFields(req.body);
+  db.prepare(
+    'INSERT INTO prints (model_id, printed_on, success, printer, filament, duration, notes) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(row.id, p.printed_on, p.success, p.printer, p.filament, p.duration, p.notes);
+  syncPrintedFlag(row.id);
+  res.status(201).json(rowToModel(db.prepare('SELECT * FROM models WHERE id = ?').get(row.id), true));
+});
+
+app.patch('/api/prints/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM prints WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Print not found' });
+  const p = printFields(req.body, existing);
+  db.prepare(
+    'UPDATE prints SET printed_on=?, success=?, printer=?, filament=?, duration=?, notes=? WHERE id=?'
+  ).run(p.printed_on, p.success, p.printer, p.filament, p.duration, p.notes, existing.id);
+  syncPrintedFlag(existing.model_id);
+  res.json(rowToModel(db.prepare('SELECT * FROM models WHERE id = ?').get(existing.model_id), true));
+});
+
+app.delete('/api/prints/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM prints WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Print not found' });
+  db.prepare('DELETE FROM prints WHERE id = ?').run(existing.id);
+  // deliberately not clearing `printed` — you printed it once, that stays true
+  res.json(rowToModel(db.prepare('SELECT * FROM models WHERE id = ?').get(existing.model_id), true));
 });
 
 // ---------- API: collections ----------
@@ -291,6 +417,11 @@ app.post('/api/import', async (req, res) => {
     for (const f of result.files) {
       stmt.run(modelId, f.kind, f.originalName, f.storedName, f.size);
     }
+    absorbFileMetadata(modelId, result.files.map((f) => ({
+      kind: f.kind,
+      original_name: f.originalName,
+      stored_name: f.storedName,
+    })));
     const row = db.prepare('SELECT * FROM models WHERE id = ?').get(modelId);
     res.status(201).json({ model: rowToModel(row, true), warnings: result.warnings });
   } catch (e) {

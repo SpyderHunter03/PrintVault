@@ -27,6 +27,18 @@ function fmtSize(bytes) {
   return `${(bytes / 1024 ** i).toFixed(i ? 1 : 0)} ${u[i]}`;
 }
 
+// printed_on is a plain YYYY-MM-DD; parse the parts so the day cannot drift
+// across a timezone boundary the way new Date('2026-08-18') can.
+function fmtDate(iso) {
+  const [y, m, d] = String(iso || '').split('-').map(Number);
+  if (!y || !m || !d) return String(iso || '');
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 function toast(msg, warn = false, ms = 4000) {
   const el = document.createElement('div');
   el.className = 'toast' + (warn ? ' warn' : '');
@@ -124,6 +136,7 @@ function cardHtml(m) {
   if (m.file_counts.model) counts.push(`${m.file_counts.model} model file${m.file_counts.model > 1 ? 's' : ''}`);
   if (m.file_counts.gcode) counts.push(`${m.file_counts.gcode} gcode`);
   if (m.file_counts.image) counts.push(`${m.file_counts.image} photo${m.file_counts.image > 1 ? 's' : ''}`);
+  if (m.print_count) counts.push(`${m.print_count} print${m.print_count > 1 ? 's' : ''} logged`);
   return `
   <div class="card" data-id="${m.id}">
     <div class="card-thumb">${thumb}</div>
@@ -193,6 +206,23 @@ async function renderDetail(id) {
       <div class="panel">
         <h3>Photos of your prints <span class="panel-hint">— ★ picks the library thumbnail</span></h3>
         <div class="gallery" id="gallery"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Print history <span class="panel-hint">— what actually came off the bed</span></h3>
+        <ul class="print-list" id="print-list"></ul>
+        <form class="print-add" id="print-add">
+          <input type="date" id="pr-date" aria-label="Date printed" required>
+          <select id="pr-result" aria-label="Result">
+            <option value="1">✓ Success</option>
+            <option value="0">✗ Failed</option>
+          </select>
+          <input type="text" id="pr-printer" placeholder="Printer" aria-label="Printer">
+          <input type="text" id="pr-filament" placeholder="Filament" aria-label="Filament">
+          <input type="text" id="pr-duration" placeholder="Duration" aria-label="Duration">
+          <input type="text" id="pr-notes" placeholder="Notes — what went right, or what failed" aria-label="Notes">
+          <button class="btn btn-sm btn-primary">Log print</button>
+        </form>
       </div>
     </div>
 
@@ -346,6 +376,84 @@ async function renderDetail(id) {
     await api(`/api/models/${id}`, { method: 'DELETE' });
     location.hash = '#/';
   });
+
+  // ---- print history ----
+  let prints = m.prints || [];
+
+  const printedEl2 = () => document.getElementById('printed');
+
+  function renderPrints() {
+    const list = document.getElementById('print-list');
+    list.innerHTML = prints.length
+      ? prints
+          .map((p) => {
+            const facts = [p.printer, p.filament, p.duration].filter(Boolean).join(' · ');
+            return `
+        <li class="print-row ${p.success ? 'ok' : 'bad'}" data-pid="${p.id}">
+          <span class="print-result" title="${p.success ? 'Successful print' : 'Failed print'}">${p.success ? '✓' : '✗'}</span>
+          <span class="print-date">${esc(fmtDate(p.printed_on))}</span>
+          <span class="print-facts">${esc(facts)}</span>
+          <button class="btn btn-sm btn-danger del-print" title="Remove this entry">✕</button>
+          ${p.notes ? `<span class="print-notes">${esc(p.notes)}</span>` : ''}
+        </li>`;
+          })
+          .join('')
+      : `<li class="muted">Nothing logged yet — record a print below and it becomes a history you can look back on.</li>`;
+
+    list.querySelectorAll('.del-print').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        const row = e.target.closest('.print-row');
+        try {
+          const updated = await api(`/api/prints/${row.dataset.pid}`, { method: 'DELETE' });
+          prints = updated.prints || [];
+          renderPrints();
+          flashSaved();
+        } catch (err) {
+          toast(`Could not remove that entry: ${err.message}`, true);
+        }
+      });
+    });
+  }
+
+  // seed the form from the model's settings — usually what you just printed with
+  function resetPrintForm() {
+    const s2 = collectSettings();
+    document.getElementById('pr-date').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('pr-result').value = '1';
+    document.getElementById('pr-printer').value = s2.printer || '';
+    document.getElementById('pr-filament').value = s2.filament || '';
+    document.getElementById('pr-duration').value = s2.print_time || '';
+    document.getElementById('pr-notes').value = '';
+  }
+
+  document.getElementById('print-add').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+      printed_on: document.getElementById('pr-date').value,
+      success: document.getElementById('pr-result').value === '1',
+      printer: document.getElementById('pr-printer').value.trim(),
+      filament: document.getElementById('pr-filament').value.trim(),
+      duration: document.getElementById('pr-duration').value.trim(),
+      notes: document.getElementById('pr-notes').value.trim(),
+    };
+    try {
+      const updated = await api(`/api/models/${id}/prints`, { method: 'POST', body });
+      prints = updated.prints || [];
+      renderPrints();
+      resetPrintForm();
+      // a successful print marks the model printed, so keep the toggle honest
+      if (updated.printed && !printedEl2().checked) {
+        printedEl2().checked = true;
+        document.getElementById('printed-label').textContent = 'Printed';
+      }
+      flashSaved();
+    } catch (err) {
+      toast(`Could not log that print: ${err.message}`, true);
+    }
+  });
+
+  renderPrints();
+  resetPrintForm();
 
   // ---- files, gallery & viewer ----
   const VIEWABLE = ['stl', 'obj', '3mf'];
@@ -555,6 +663,21 @@ async function renderDetail(id) {
   async function reloadFiles() {
     const fresh = await api(`/api/models/${id}`);
     refreshFileViews(fresh.files);
+    return fresh;
+  }
+
+  // the server reads printer settings out of gcode / 3mf on upload; reflect any
+  // it managed to fill, without touching fields that already have a value
+  function syncSettingsInputs(settings) {
+    let filled = 0;
+    view.querySelectorAll('[data-setting]').forEach((inp) => {
+      const value = (settings || {})[inp.dataset.setting];
+      if (value && !inp.value.trim()) {
+        inp.value = value;
+        filled++;
+      }
+    });
+    return filled;
   }
 
   // ---- uploads ----
@@ -579,7 +702,9 @@ async function renderDetail(id) {
     }
     dz.innerHTML = `Drop files here or click to upload<br><span style="font-size:.85em">models (.stl .3mf .obj) · gcode · photos (.jpg .png …) · anything else</span>`;
     fi.value = '';
-    reloadFiles();
+    const fresh = await reloadFiles();
+    const filled = syncSettingsInputs(fresh.settings);
+    if (filled) toast(`Filled ${filled} printer setting${filled > 1 ? 's' : ''} from the slicer file`);
   }
 
   refreshFileViews(m.files);
