@@ -80,6 +80,7 @@ export class ModelViewer {
    */
   async load(url, ext) {
     this.clear();
+    this._lastReport = null;
     const material = new THREE.MeshStandardMaterial({
       color: 0x6f9dff,
       metalness: 0.1,
@@ -101,7 +102,9 @@ export class ModelViewer {
         }
       });
     } else if (ext === '3mf') {
-      object = await load3MF(url);
+      const report = {};
+      object = await load3MF(url, report);
+      this._lastReport = summarise(report);
       object.traverse((o) => {
         if (o.isMesh && (!o.material || !o.material.map)) o.material = material;
       });
@@ -113,7 +116,10 @@ export class ModelViewer {
     if (ext === 'stl' || ext === '3mf') object.rotation.x = -Math.PI / 2;
 
     if (!countVertices(object)) {
-      throw new Error('this file contains no mesh data the viewer can read');
+      throw new Error(
+        'this file contains no mesh data the viewer can read' +
+          (this._lastReport ? ` [${this._lastReport}]` : '')
+      );
     }
 
     // Center on the plate and frame the camera.
@@ -191,28 +197,41 @@ function countVertices(object) {
  * 3MF needs a pre-pass: slicer project files split their objects across several
  * parts inside the archive, which ThreeMFLoader cannot follow on its own.
  */
-async function load3MF(url) {
+async function load3MF(url, report = {}) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`could not fetch the file (HTTP ${res.status})`);
   const raw = await res.arrayBuffer();
 
   let buffer = raw;
   try {
-    buffer = flatten3mf(raw);
+    buffer = flatten3mf(raw, report);
   } catch (e) {
+    report.error = e.message;
     console.warn('3MF: could not flatten multi-part archive, trying it as-is', e);
   }
+  console.info('3MF:', summarise(report));
 
   try {
     return new ThreeMFLoader().parse(buffer);
   } catch (e) {
     if (buffer !== raw) {
-      // the rewrite may have confused the loader — fall back to the original bytes
-      return new ThreeMFLoader().parse(raw);
+      try {
+        // the rewrite may have confused the loader — fall back to the original bytes
+        return new ThreeMFLoader().parse(raw);
+      } catch {
+        throw new Error(`${e.message} [${summarise(report)}]`);
+      }
     }
     if (/relationship file|invalid|zip/i.test(e.message)) {
       throw new Error("this doesn't look like a valid .3mf archive");
     }
-    throw e;
+    throw new Error(`${e.message} [${summarise(report)}]`);
   }
+}
+
+// compact description of what the flattening pass saw, for error messages
+function summarise(report) {
+  return Object.entries(report)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(' ') || 'no report';
 }

@@ -24,14 +24,20 @@ function parseXml(text) {
   return doc;
 }
 
-// `p:path`, whatever prefix the file happens to bind the production namespace to
+// `p:path`, whatever prefix (or namespace variant) the file happens to use
 function pathOf(node) {
-  return node.getAttributeNS(PROD_NS, 'path') || node.getAttribute('p:path') || null;
+  const direct = node.getAttributeNS(PROD_NS, 'path') || node.getAttribute('p:path');
+  if (direct) return direct;
+  for (const attr of node.attributes) {
+    if (attr.localName === 'path' && attr.value) return attr.value;
+  }
+  return null;
 }
 
 function dropPath(node) {
-  node.removeAttributeNS(PROD_NS, 'path');
-  node.removeAttribute('p:path');
+  for (const attr of [...node.attributes]) {
+    if (attr.localName === 'path') node.removeAttributeNode(attr);
+  }
 }
 
 const zipKey = (target) => String(target || '').replace(/^\//, '');
@@ -54,20 +60,46 @@ function findRootModel(zip) {
 
 /**
  * @param {ArrayBuffer} buffer raw .3mf (zip) bytes
+ * @param {object} report filled in with what happened, for error messages
  * @returns {ArrayBuffer} an equivalent single-part .3mf, or the input unchanged
  */
-export function flatten3mf(buffer) {
+export function flatten3mf(buffer, report = {}) {
   const zip = unzipSync(new Uint8Array(buffer));
   const rootKey = findRootModel(zip);
-  if (!rootKey) return buffer;
+  report.parts = Object.keys(zip).filter((k) => MODEL_PART.test(k)).length;
+  report.root = rootKey;
+  if (!rootKey) {
+    report.skipped = 'no model part found';
+    return buffer;
+  }
 
   const rootDoc = parseXml(strFromU8(zip[rootKey]));
-  const resources = rootDoc.querySelector('resources');
-  if (!resources) return buffer;
+  let resources = rootDoc.querySelector('resources');
 
   const partKeys = Object.keys(zip).filter((k) => MODEL_PART.test(k) && k !== rootKey);
   const hasRefs = [...rootDoc.querySelectorAll('component, item')].some(pathOf);
-  if (!partKeys.length && !hasRefs) return buffer; // ordinary single-part file
+  report.refs = hasRefs;
+
+  // a reference to an id that isn't here would crash the loader, so those files
+  // go through the pass too even though they are single-part
+  const declared = new Set(
+    [...rootDoc.querySelectorAll('resources > object')].map((el) => el.getAttribute('id'))
+  );
+  const hasDangling = [...rootDoc.querySelectorAll('components > component, build > item')].some(
+    (n) => !declared.has(n.getAttribute('objectid'))
+  );
+  report.dangling = hasDangling;
+
+  if (!partKeys.length && !hasRefs && !hasDangling) {
+    report.skipped = 'single-part file';
+    return buffer; // ordinary 3MF, nothing to do
+  }
+
+  // a root that carries only a <build> still needs somewhere to put the imports
+  if (!resources) {
+    resources = rootDoc.createElementNS(rootDoc.documentElement.namespaceURI, 'resources');
+    rootDoc.documentElement.insertBefore(resources, rootDoc.documentElement.firstChild);
+  }
 
   // ids live in one namespace per model, so keep a single counter above them all
   let nextId = 1;
@@ -76,12 +108,23 @@ export function flatten3mf(buffer) {
     if (Number.isFinite(id) && id >= nextId) nextId = id + 1;
   }
 
+  // archives in the wild disagree about case and leading slashes
+  function resolveKey(key) {
+    if (zip[key]) return key;
+    const lower = key.toLowerCase();
+    const ci = Object.keys(zip).find((k) => k.toLowerCase() === lower);
+    if (ci) return ci;
+    const base = lower.split('/').pop();
+    return Object.keys(zip).find((k) => MODEL_PART.test(k) && k.toLowerCase().split('/').pop() === base) || null;
+  }
+
   const partDocs = new Map();
   function parsePart(key) {
     if (!partDocs.has(key)) {
       let doc = null;
       try {
-        if (zip[key]) doc = parseXml(strFromU8(zip[key]));
+        const actual = resolveKey(key);
+        if (actual) doc = parseXml(strFromU8(zip[actual]));
       } catch {
         doc = null;
       }
@@ -134,6 +177,8 @@ export function flatten3mf(buffer) {
     }
   }
 
+  let unresolved = 0;
+
   function resolveComponents(objectEl, partKey) {
     for (const comp of objectEl.querySelectorAll('component')) {
       const target = pathOf(comp);
@@ -142,6 +187,7 @@ export function flatten3mf(buffer) {
       if (childPart === rootKey) continue; // already points at an object in this model
       const mapped = importObject(childPart, comp.getAttribute('objectid'));
       if (mapped) comp.setAttribute('objectid', mapped);
+      else unresolved++;
     }
   }
 
@@ -178,9 +224,44 @@ export function flatten3mf(buffer) {
     if (part === rootKey) continue;
     const mapped = importObject(part, item.getAttribute('objectid'));
     if (mapped) item.setAttribute('objectid', mapped);
+    else unresolved++;
   }
 
   rootDoc.documentElement.removeAttribute('requiredextensions');
+
+  // Safety net: ThreeMFLoader dereferences ids without checking, so a single
+  // reference we could not follow crashes the whole load. Drop those instead,
+  // and keep pruning until nothing dangles — removing an object can orphan the
+  // components that pointed at it.
+  let pruned = 0;
+  for (let pass = 0; pass < 8; pass++) {
+    const known = new Set(
+      [...rootDoc.querySelectorAll('resources > object')].map((el) => el.getAttribute('id'))
+    );
+    let changed = false;
+    for (const node of rootDoc.querySelectorAll('components > component, build > item')) {
+      if (!known.has(node.getAttribute('objectid'))) {
+        node.parentNode.removeChild(node);
+        pruned++;
+        changed = true;
+      }
+    }
+    for (const comps of rootDoc.querySelectorAll('object > components')) {
+      if (!comps.querySelector('component')) {
+        const owner = comps.parentNode;
+        owner.parentNode.removeChild(owner); // an object with neither mesh nor parts
+        pruned++;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+
+  report.imported = objectIds.size;
+  report.unresolved = unresolved;
+  report.pruned = pruned;
+  report.objects = rootDoc.querySelectorAll('resources > object').length;
+  report.items = rootDoc.querySelectorAll('build > item').length;
 
   const out = {};
   for (const [key, bytes] of Object.entries(zip)) {
