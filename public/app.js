@@ -47,6 +47,45 @@ function toast(msg, warn = false, ms = 4000) {
   setTimeout(() => el.remove(), ms);
 }
 
+const DRAG_MIME = {
+  stl: 'model/stl',
+  '3mf': 'model/3mf',
+  obj: 'model/obj',
+  gcode: 'text/x.gcode',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+};
+
+/*
+ * Let a file be dragged out of the page and dropped into a folder, a slicer,
+ * anywhere. Chromium's protocol for this is a `DownloadURL` entry shaped
+ * `mime:filename:absolute-url` — it fetches that URL on drop and writes the
+ * real file at the destination. Firefox and Safari ignore it, so the plain URL
+ * is offered too and they drop a link instead.
+ */
+function makeDraggableOut(el, file) {
+  el.draggable = true;
+  el.addEventListener('dragstart', (e) => {
+    const url = new URL(`/api/files/${file.id}/download`, location.href).href;
+    const mime = DRAG_MIME[file.name.split('.').pop().toLowerCase()] || 'application/octet-stream';
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    dt.effectAllowed = 'copy';
+    try {
+      dt.setData('DownloadURL', `${mime}:${file.name}:${url}`);
+    } catch {
+      /* browser without DownloadURL support — the fallbacks below still apply */
+    }
+    dt.setData('text/uri-list', url);
+    dt.setData('text/plain', url);
+    el.classList.add('dragging-out');
+  });
+  el.addEventListener('dragend', () => el.classList.remove('dragging-out'));
+}
+
 function debounce(fn, ms) {
   let t;
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
@@ -194,7 +233,7 @@ async function renderDetail(id) {
       </div>
 
       <div class="panel">
-        <h3>Files <span class="panel-hint">— click a model file to preview it</span></h3>
+        <h3>Files <span class="panel-hint">— click a model file to preview it, or drag it out to save it</span></h3>
         <ul class="file-list" id="file-list"></ul>
         <div class="dropzone" id="dropzone">
           Drop files here or click to upload<br>
@@ -496,6 +535,11 @@ async function renderDetail(id) {
         }).join('')
       : `<li class="muted">No files yet — add the model files below.</li>`;
 
+    list.querySelectorAll('.file-row').forEach((row) => {
+      const file = files.find((f) => f.id === Number(row.dataset.fid));
+      if (file) makeDraggableOut(row, file);
+    });
+
     list.querySelectorAll('.file-row.viewable').forEach((row) => {
       const pick = () => selectFile(Number(row.dataset.fid));
       row.addEventListener('click', (e) => {
@@ -537,7 +581,7 @@ async function renderDetail(id) {
     g.innerHTML = images.length
       ? images.map((f) => `
         <div class="shot${f.id === primaryId ? ' primary' : ''}" data-fid="${f.id}">
-          <img src="/api/files/${f.id}/raw" loading="lazy" alt="${esc(f.name)}">
+          <img src="/api/files/${f.id}/raw" loading="lazy" alt="${esc(f.name)}" draggable="false">
           <button class="star${f.id === primaryId ? ' on' : ''}" title="${f.id === primaryId ? 'Primary image' : 'Use as primary image'}" aria-label="Use as primary image">${f.id === primaryId ? '★' : '☆'}</button>
           <button class="del" title="Delete photo">✕</button>
           ${f.id === primaryId ? '<span class="primary-tag">Primary</span>' : ''}
@@ -549,6 +593,10 @@ async function renderDetail(id) {
         lb.querySelector('img').src = img.src;
         lb.classList.add('show');
       });
+    });
+    g.querySelectorAll('.shot').forEach((shot) => {
+      const file = images.find((f) => f.id === Number(shot.dataset.fid));
+      if (file) makeDraggableOut(shot, file);
     });
     g.querySelectorAll('.star').forEach((btn) => {
       btn.addEventListener('click', (e) => {
@@ -687,6 +735,8 @@ async function renderDetail(id) {
   fi.addEventListener('change', () => uploadFiles(fi.files));
   ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('drag'); }));
   ['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('drag'); }));
+  // a file dragged out of the list carries no real files, so dropping it back
+  // on the upload box should do nothing rather than look like a failed upload
   dz.addEventListener('drop', (e) => uploadFiles(e.dataTransfer.files));
 
   async function uploadFiles(fileList) {

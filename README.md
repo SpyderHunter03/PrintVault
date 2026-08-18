@@ -6,6 +6,7 @@ A self-hosted library for your 3D print files. Store your STL/3MF/OBJ/GCODE file
 
 - **In-browser 3D viewer** for `.stl`, `.obj`, and `.3mf` files (Three.js — rotate, zoom, pan, model dimensions shown), plus storage for `.gcode` and anything else. Multi-part slicer project `.3mf` files (Bambu Studio, OrcaSlicer, PrusaSlicer) are supported — they are flattened in the browser before rendering, which the stock Three.js loader cannot do on its own
 - **Multi-file items** — one item can hold any number of model files (multi-part prints); click any model file in the file list to highlight it and load it into the viewer
+- **Drag files straight out** — drag a row from the file list (or a photo from the gallery) onto your desktop, into a folder, or into a slicer, and the real file lands there. Uses Chromium's drag-out protocol, so it works in Chrome and Edge; Firefox and Safari drop a link instead
 - **Collections** — group items into collections (an item can be in several), filter the library by collection
 - **Print history** — log every attempt with the date, printer, filament, how long it took, whether it worked and what went wrong. A successful entry marks the model printed, and the Printed / Not printed toggle and its library filter keep working as before
 - **Photos** — upload pictures of your finished prints, shown as a gallery; star one to make it the primary image used as the library thumbnail (otherwise the first photo is used)
