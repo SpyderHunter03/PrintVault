@@ -105,8 +105,20 @@ export class ModelViewer {
       const report = {};
       object = await load3MF(url, report);
       this._lastReport = summarise(report);
+      const flat = material.clone();
+      flat.flatShading = true;
       object.traverse((o) => {
-        if (o.isMesh && (!o.material || !o.material.map)) o.material = material;
+        if (!o.isMesh) return;
+        // keep any textured material the loader built, otherwise use ours
+        if (!o.material || !o.material.map) o.material = material;
+        // ThreeMFLoader never emits vertex normals, and a lit material without
+        // them renders solid black. Flat shading derives one per face in the
+        // shader, which also matches how STL files look here.
+        if (!o.geometry.attributes.normal) {
+          o.material = o.material === material ? flat : o.material.clone();
+          o.material.flatShading = true;
+          o.material.needsUpdate = true;
+        }
       });
     } else {
       throw new Error(`No preview available for .${ext} files`);

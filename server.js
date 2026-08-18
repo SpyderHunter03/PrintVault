@@ -7,6 +7,7 @@ const multer = require('multer');
 
 const { db, FILES_DIR } = require('./src/db');
 const { importFromUrl, kindForExt, extOf, storedNameFor } = require('./src/importer');
+const { version: APP_VERSION } = require('./package.json');
 
 const PORT = Number(process.env.PORT || 3000);
 const app = express();
@@ -70,6 +71,10 @@ function getModelOr404(id, res) {
   }
   return row;
 }
+
+app.get('/api/version', (_req, res) => {
+  res.json({ version: APP_VERSION });
+});
 
 // ---------- API: models ----------
 app.get('/api/models', (req, res) => {
@@ -291,5 +296,5 @@ app.get(/^\/(?!api\/|vendor\/).*/, (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`PrintVault listening on http://0.0.0.0:${PORT}`);
+  console.log(`PrintVault ${APP_VERSION} listening on http://0.0.0.0:${PORT}`);
 });

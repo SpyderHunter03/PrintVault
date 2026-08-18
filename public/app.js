@@ -641,5 +641,16 @@ dlgImport.querySelector('form').addEventListener('submit', async (e) => {
   }
 });
 
+async function showVersion() {
+  const el = document.getElementById('app-version');
+  try {
+    const { version } = await api('/api/version');
+    el.textContent = `v${version}`;
+  } catch {
+    el.remove(); // older backend, or the server is unreachable — no need to shout
+  }
+}
+
+showVersion();
 loadCollections();
 route();
