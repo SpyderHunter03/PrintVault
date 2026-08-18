@@ -40,6 +40,26 @@ function debounce(fn, ms) {
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
 
+// ---------------- collections ----------------
+let collectionsCache = [];
+
+async function loadCollections(preserveSelection = true) {
+  try {
+    collectionsCache = await api('/api/collections');
+  } catch {
+    collectionsCache = [];
+  }
+  const sel = document.getElementById('filter-collection');
+  const prev = preserveSelection ? sel.value : '';
+  sel.innerHTML =
+    `<option value="">All collections</option>` +
+    collectionsCache
+      .map((c) => `<option value="${c.id}">${esc(c.name)} (${c.model_count})</option>`)
+      .join('');
+  if (prev && collectionsCache.some((c) => String(c.id) === prev)) sel.value = prev;
+  return collectionsCache;
+}
+
 const SETTINGS_FIELDS = [
   ['printer', 'Printer'],
   ['filament', 'Filament / material'],
@@ -66,9 +86,11 @@ function route() {
 async function renderLibrary() {
   const search = document.getElementById('search').value.trim();
   const printed = document.getElementById('filter-printed').value;
+  const collection = document.getElementById('filter-collection').value;
   const qs = new URLSearchParams();
   if (search) qs.set('search', search);
   if (printed !== '') qs.set('printed', printed);
+  if (collection !== '') qs.set('collection', collection);
 
   let models;
   try {
@@ -78,11 +100,12 @@ async function renderLibrary() {
     return;
   }
 
+  const filtered = search || printed !== '' || collection !== '';
   if (!models.length) {
     view.innerHTML = `
       <div class="empty">
-        <h2>${search || printed !== '' ? 'No matches' : 'Your library is empty'}</h2>
-        <p>${search || printed !== '' ? 'Try a different search or filter.' : 'Click <b>+ New model</b> to add one, or <b>Import URL</b> to pull one in from Thingiverse, Printables, MakerWorld or Cults3D.'}</p>
+        <h2>${filtered ? 'No matches' : 'Your library is empty'}</h2>
+        <p>${filtered ? 'Try a different search or filter.' : 'Click <b>+ New model</b> to add one, or <b>Import URL</b> to pull one in from Thingiverse, Printables, MakerWorld or Cults3D.'}</p>
       </div>`;
     return;
   }
@@ -110,6 +133,7 @@ function cardHtml(m) {
         <span class="badge ${m.printed ? 'badge-printed' : 'badge-notprinted'}">${m.printed ? '✓ Printed' : 'Not printed'}</span>
         ${counts.length ? `<span>${counts.join(' · ')}</span>` : ''}
       </div>
+      ${(m.collections || []).length ? `<div class="card-meta">${m.collections.map((c) => `<span class="chip">${esc(c.name)}</span>`).join('')}</div>` : ''}
     </div>
   </div>`;
 }
@@ -180,6 +204,15 @@ async function renderDetail(id) {
       </div>
 
       <div class="panel">
+        <h3>Collections</h3>
+        <div id="coll-list" class="coll-list"></div>
+        <div class="row" style="margin-top:10px">
+          <input id="coll-new" type="text" placeholder="New collection name…" style="flex:1">
+          <button id="coll-add" class="btn btn-sm">Add</button>
+        </div>
+      </div>
+
+      <div class="panel">
         <h3>Printer settings</h3>
         <div class="settings-grid">
           ${SETTINGS_FIELDS.map(([k, label]) => `
@@ -242,6 +275,68 @@ async function renderDetail(id) {
 
   // notes
   document.getElementById('notes').addEventListener('input', (e) => patchDebounced({ notes: e.target.value }));
+
+  // collections
+  let memberIds = new Set((m.collections || []).map((c) => c.id));
+
+  async function saveCollections() {
+    try {
+      const updated = await api(`/api/models/${id}/collections`, {
+        method: 'PUT',
+        body: { collection_ids: [...memberIds] },
+      });
+      memberIds = new Set((updated.collections || []).map((c) => c.id));
+      flashSaved();
+      loadCollections(); // refresh top-bar counts
+    } catch (e) {
+      toast(`Save failed: ${e.message}`, true);
+    }
+  }
+
+  function renderCollectionChecks() {
+    const box = document.getElementById('coll-list');
+    box.innerHTML = collectionsCache.length
+      ? collectionsCache
+          .map(
+            (c) => `
+        <label class="coll-item">
+          <input type="checkbox" data-cid="${c.id}" ${memberIds.has(c.id) ? 'checked' : ''}>
+          <span>${esc(c.name)}</span>
+        </label>`
+          )
+          .join('')
+      : `<span class="muted">No collections yet — create one below.</span>`;
+    box.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const cid = Number(cb.dataset.cid);
+        if (cb.checked) memberIds.add(cid);
+        else memberIds.delete(cid);
+        saveCollections();
+      });
+    });
+  }
+
+  document.getElementById('coll-add').addEventListener('click', async () => {
+    const inp = document.getElementById('coll-new');
+    const name = inp.value.trim();
+    if (!name) return;
+    try {
+      const c = await api('/api/collections', { method: 'POST', body: { name } });
+      inp.value = '';
+      memberIds.add(c.id);
+      await loadCollections();
+      renderCollectionChecks();
+      saveCollections();
+    } catch (e) {
+      toast(`Could not create collection: ${e.message}`, true);
+    }
+  });
+  document.getElementById('coll-new').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('coll-add').click(); }
+  });
+
+  if (!collectionsCache.length) await loadCollections();
+  renderCollectionChecks();
 
   // delete
   document.getElementById('btn-delete').addEventListener('click', async () => {
@@ -395,6 +490,10 @@ document.getElementById('filter-printed').addEventListener('change', () => {
   if (location.hash && location.hash !== '#/') location.hash = '#/';
   else renderLibrary();
 });
+document.getElementById('filter-collection').addEventListener('change', () => {
+  if (location.hash && location.hash !== '#/') location.hash = '#/';
+  else renderLibrary();
+});
 
 // new model dialog
 const dlgNew = document.getElementById('dlg-new');
@@ -440,4 +539,5 @@ dlgImport.querySelector('form').addEventListener('submit', async (e) => {
   }
 });
 
+loadCollections();
 route();

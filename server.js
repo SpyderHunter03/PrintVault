@@ -42,6 +42,11 @@ function rowToModel(row, withFiles = false) {
   const files = db.prepare('SELECT * FROM files WHERE model_id = ? ORDER BY id').all(row.id);
   model.cover_file_id = (files.find((f) => f.kind === 'image') || {}).id || null;
   model.file_counts = files.reduce((acc, f) => ((acc[f.kind] = (acc[f.kind] || 0) + 1), acc), {});
+  model.collections = db
+    .prepare(
+      'SELECT c.id, c.name FROM collections c JOIN model_collections mc ON mc.collection_id = c.id WHERE mc.model_id = ? ORDER BY c.name'
+    )
+    .all(row.id);
   if (withFiles) {
     model.files = files.map((f) => ({
       id: f.id,
@@ -65,7 +70,7 @@ function getModelOr404(id, res) {
 
 // ---------- API: models ----------
 app.get('/api/models', (req, res) => {
-  const { search, printed } = req.query;
+  const { search, printed, collection } = req.query;
   let sql = 'SELECT * FROM models';
   const where = [];
   const params = [];
@@ -76,6 +81,10 @@ app.get('/api/models', (req, res) => {
   if (printed === '1' || printed === '0') {
     where.push('printed = ?');
     params.push(Number(printed));
+  }
+  if (collection && /^\d+$/.test(collection)) {
+    where.push('id IN (SELECT model_id FROM model_collections WHERE collection_id = ?)');
+    params.push(Number(collection));
   }
   if (where.length) sql += ' WHERE ' + where.join(' AND ');
   sql += ' ORDER BY updated_at DESC';
@@ -178,6 +187,59 @@ app.delete('/api/files/:id', (req, res) => {
   db.prepare('DELETE FROM files WHERE id = ?').run(f.id);
   fs.rm(path.join(FILES_DIR, f.stored_name), { force: true }, () => {});
   res.json({ ok: true });
+});
+
+// ---------- API: collections ----------
+app.get('/api/collections', (_req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT c.id, c.name, COUNT(mc.model_id) AS model_count
+       FROM collections c LEFT JOIN model_collections mc ON mc.collection_id = c.id
+       GROUP BY c.id ORDER BY c.name`
+    )
+    .all();
+  res.json(rows);
+});
+
+app.post('/api/collections', (req, res) => {
+  const name = String((req.body || {}).name || '').trim().slice(0, 120);
+  if (!name) return res.status(400).json({ error: 'Collection name is required' });
+  const existing = db.prepare('SELECT * FROM collections WHERE name = ? COLLATE NOCASE').get(name);
+  if (existing) return res.status(200).json(existing);
+  const info = db.prepare('INSERT INTO collections (name) VALUES (?)').run(name);
+  res.status(201).json(db.prepare('SELECT * FROM collections WHERE id = ?').get(info.lastInsertRowid));
+});
+
+app.patch('/api/collections/:id', (req, res) => {
+  const c = db.prepare('SELECT * FROM collections WHERE id = ?').get(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Collection not found' });
+  const name = String((req.body || {}).name || '').trim().slice(0, 120);
+  if (!name) return res.status(400).json({ error: 'Collection name is required' });
+  db.prepare('UPDATE collections SET name = ? WHERE id = ?').run(name, c.id);
+  res.json(db.prepare('SELECT * FROM collections WHERE id = ?').get(c.id));
+});
+
+app.delete('/api/collections/:id', (req, res) => {
+  const c = db.prepare('SELECT * FROM collections WHERE id = ?').get(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Collection not found' });
+  db.prepare('DELETE FROM collections WHERE id = ?').run(c.id);
+  res.json({ ok: true });
+});
+
+app.put('/api/models/:id/collections', (req, res) => {
+  const row = getModelOr404(req.params.id, res);
+  if (!row) return;
+  const ids = Array.isArray((req.body || {}).collection_ids) ? req.body.collection_ids : [];
+  const valid = ids
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && db.prepare('SELECT 1 FROM collections WHERE id = ?').get(n));
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM model_collections WHERE model_id = ?').run(row.id);
+    const ins = db.prepare('INSERT OR IGNORE INTO model_collections (model_id, collection_id) VALUES (?, ?)');
+    for (const cid of valid) ins.run(row.id, cid);
+  });
+  tx();
+  res.json(rowToModel(db.prepare('SELECT * FROM models WHERE id = ?').get(row.id), true));
 });
 
 // ---------- API: URL import ----------

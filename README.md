@@ -5,6 +5,8 @@ A self-hosted library for your 3D print files. Store your STL/3MF/OBJ/GCODE file
 ## Features
 
 - **In-browser 3D viewer** for `.stl`, `.obj`, and `.3mf` files (Three.js — rotate, zoom, pan, model dimensions shown), plus storage for `.gcode` and anything else
+- **Multi-file items** — one item can hold any number of model files (multi-part prints); pick which file to preview from a dropdown in the viewer
+- **Collections** — group items into collections (an item can be in several), filter the library by collection
 - **Print tracking** — a simple Printed / Not printed toggle with filtering
 - **Photos** — upload pictures of your finished prints, shown as a gallery and used as the library thumbnail
 - **Printer settings** — printer, filament, temps, layer height, infill, supports, print time, plus free-form notes

@@ -36,6 +36,18 @@ CREATE TABLE IF NOT EXISTS files (
 );
 
 CREATE INDEX IF NOT EXISTS idx_files_model ON files(model_id);
+
+CREATE TABLE IF NOT EXISTS collections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS model_collections (
+  model_id INTEGER NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+  collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  PRIMARY KEY (model_id, collection_id)
+);
 `);
 
 module.exports = { db, DATA_DIR, FILES_DIR };
