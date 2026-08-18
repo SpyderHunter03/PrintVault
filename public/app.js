@@ -173,6 +173,7 @@ async function renderDetail(id) {
         <div class="viewer-toolbar">
           <span id="viewer-current" class="viewer-current"></span>
           <span id="dims" class="muted"></span>
+          <button id="btn-thumb" class="btn btn-sm" disabled title="Save this view as the picture shown in the library">📷 Use as thumbnail</button>
           <span class="spacer"></span>
           <span class="muted hint-pointer">drag to rotate · scroll to zoom · right-drag to pan</span>
           <span class="muted hint-touch">drag to rotate · pinch to zoom · two fingers to pan</span>
@@ -469,6 +470,35 @@ async function renderDetail(id) {
     }
   }
 
+  // snapshot the 3D view and use it as the model's picture in the library
+  const thumbBtn = document.getElementById('btn-thumb');
+  thumbBtn.addEventListener('click', async () => {
+    if (!viewer || displayedFileId === null) return;
+    const f = currentFiles.find((x) => x.id === displayedFileId);
+    const label = thumbBtn.textContent;
+    thumbBtn.disabled = true;
+    thumbBtn.textContent = 'Saving\u2026';
+    try {
+      const blob = await (await fetch(viewer.snapshot())).blob();
+      const base = (f ? f.name : 'model').replace(/\.[^.]+$/, '');
+      const fd = new FormData();
+      fd.append('files', blob, `${base}-preview.png`);
+      const { files: uploaded } = await api(`/api/models/${id}/files`, { method: 'POST', body: fd });
+      const shot = (uploaded || []).find((u) => u.kind === 'image');
+      if (shot) {
+        const updated = await api(`/api/models/${id}`, { method: 'PATCH', body: { cover_file_id: shot.id } });
+        pinnedCoverId = updated.cover_pinned ? updated.cover_file_id : null;
+      }
+      await reloadFiles();
+      toast('Library picture set from this view');
+    } catch (e) {
+      toast(`Could not save the view: ${e.message}`, true);
+    } finally {
+      thumbBtn.textContent = label;
+      thumbBtn.disabled = displayedFileId === null;
+    }
+  });
+
   document.getElementById('lightbox').addEventListener('click', (e) => e.currentTarget.classList.remove('show'));
 
   function showSelectedInViewer() {
@@ -482,6 +512,7 @@ async function renderDetail(id) {
       msg.innerHTML = 'No viewable model file yet.<br>Upload an <b>.stl</b>, <b>.obj</b> or <b>.3mf</b> to see it here.';
       viewerLoadToken++; // cancel anything still in flight
       displayedFileId = null;
+      document.getElementById('btn-thumb').disabled = true;
       viewer?.clear();
       return;
     }
@@ -507,6 +538,7 @@ async function renderDetail(id) {
       if (token !== viewerLoadToken) return;
       msg.textContent = '';
       displayedFileId = f.id;
+      document.getElementById('btn-thumb').disabled = false;
       const d = info.dimensions;
       dims.textContent = `${d.x.toFixed(1)} × ${d.y.toFixed(1)} × ${d.z.toFixed(1)} mm`;
     } catch (e) {
@@ -514,6 +546,7 @@ async function renderDetail(id) {
       msg.textContent = `Could not preview: ${e.message}`;
       dims.textContent = '';
       displayedFileId = null; // let a later refresh retry
+      document.getElementById('btn-thumb').disabled = true;
     }
   }
 

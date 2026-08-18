@@ -4,11 +4,12 @@ A self-hosted library for your 3D print files. Store your STL/3MF/OBJ/GCODE file
 
 ## Features
 
-- **In-browser 3D viewer** for `.stl`, `.obj`, and `.3mf` files (Three.js — rotate, zoom, pan, model dimensions shown), plus storage for `.gcode` and anything else
+- **In-browser 3D viewer** for `.stl`, `.obj`, and `.3mf` files (Three.js — rotate, zoom, pan, model dimensions shown), plus storage for `.gcode` and anything else. Multi-part slicer project `.3mf` files (Bambu Studio, OrcaSlicer, PrusaSlicer) are supported — they are flattened in the browser before rendering, which the stock Three.js loader cannot do on its own
 - **Multi-file items** — one item can hold any number of model files (multi-part prints); click any model file in the file list to highlight it and load it into the viewer
 - **Collections** — group items into collections (an item can be in several), filter the library by collection
 - **Print tracking** — a simple Printed / Not printed toggle with filtering
 - **Photos** — upload pictures of your finished prints, shown as a gallery; star one to make it the primary image used as the library thumbnail (otherwise the first photo is used)
+- **Library picture from the model itself** — no photo yet? Rotate the 3D preview to an angle you like and hit **📷 Use as thumbnail** to save that view as the model's picture
 - **Printer settings** — printer, filament, temps, layer height, infill, supports, print time, plus free-form notes
 - **Source URL** stored per model with a one-click link back
 - **URL import** — paste a link and PrintVault creates the entry for you:

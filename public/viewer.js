@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
+import { flatten3mf } from './3mf.js';
 
 /**
  * Minimal 3D model viewer for STL / OBJ / 3MF.
@@ -16,7 +17,7 @@ export class ModelViewer {
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 10000);
     this.camera.position.set(120, 90, 120);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);
 
@@ -100,7 +101,7 @@ export class ModelViewer {
         }
       });
     } else if (ext === '3mf') {
-      object = await new ThreeMFLoader().loadAsync(url);
+      object = await load3MF(url);
       object.traverse((o) => {
         if (o.isMesh && (!o.material || !o.material.map)) o.material = material;
       });
@@ -111,8 +112,13 @@ export class ModelViewer {
     // Normalize orientation: STL/3MF are usually Z-up; three.js is Y-up.
     if (ext === 'stl' || ext === '3mf') object.rotation.x = -Math.PI / 2;
 
+    if (!countVertices(object)) {
+      throw new Error('this file contains no mesh data the viewer can read');
+    }
+
     // Center on the plate and frame the camera.
     const box = new THREE.Box3().setFromObject(object);
+    if (box.isEmpty()) throw new Error('this file has no geometry to show');
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
     object.position.x -= center.x;
@@ -121,7 +127,7 @@ export class ModelViewer {
 
     this.modelGroup.add(object);
 
-    const maxDim = Math.max(size.x, size.y, size.z) || 10;
+    const maxDim = [size.x, size.y, size.z].filter(Number.isFinite).reduce((a, b) => Math.max(a, b), 0) || 10;
     const dist = maxDim * 1.9;
     this.camera.position.set(dist, dist * 0.75, dist);
     this.camera.near = maxDim / 100;
@@ -139,11 +145,74 @@ export class ModelViewer {
     return { dimensions: { x: size.x, y: size.z, z: size.y } }; // report as printer X/Y/Z
   }
 
+  /**
+   * Grab what is on screen right now as a PNG, for use as the model's picture
+   * in the library. The grid is hidden and a solid background painted in, so
+   * the shot reads as a picture of the model, not a screenshot of the viewer.
+   */
+  snapshot(width = 800, height = 600) {
+    const grid = this.grid.visible;
+    const background = this.scene.background;
+
+    this.grid.visible = false;
+    this.scene.background = new THREE.Color(0x161b24);
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(width, height, false);
+    this.renderer.render(this.scene, this.camera);
+
+    const dataUrl = this.renderer.domElement.toDataURL('image/png');
+
+    this.grid.visible = grid;
+    this.scene.background = background;
+    this._resize(); // puts the canvas back to the size the page gives it
+
+    return dataUrl;
+  }
+
   dispose() {
     this._running = false;
     window.removeEventListener('resize', this._resize);
     this.clear();
     this.renderer.dispose();
     this.renderer.domElement.remove();
+  }
+}
+
+function countVertices(object) {
+  let n = 0;
+  object.traverse((o) => {
+    if (o.isMesh) n += o.geometry?.attributes?.position?.count || 0;
+  });
+  return n;
+}
+
+/**
+ * 3MF needs a pre-pass: slicer project files split their objects across several
+ * parts inside the archive, which ThreeMFLoader cannot follow on its own.
+ */
+async function load3MF(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`could not fetch the file (HTTP ${res.status})`);
+  const raw = await res.arrayBuffer();
+
+  let buffer = raw;
+  try {
+    buffer = flatten3mf(raw);
+  } catch (e) {
+    console.warn('3MF: could not flatten multi-part archive, trying it as-is', e);
+  }
+
+  try {
+    return new ThreeMFLoader().parse(buffer);
+  } catch (e) {
+    if (buffer !== raw) {
+      // the rewrite may have confused the loader — fall back to the original bytes
+      return new ThreeMFLoader().parse(raw);
+    }
+    if (/relationship file|invalid|zip/i.test(e.message)) {
+      throw new Error("this doesn't look like a valid .3mf archive");
+    }
+    throw e;
   }
 }
