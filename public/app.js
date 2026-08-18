@@ -171,15 +171,16 @@ async function renderDetail(id) {
           <div id="viewer-msg" class="viewer-msg"></div>
         </div>
         <div class="viewer-toolbar">
-          <select id="viewer-file"></select>
+          <span id="viewer-current" class="viewer-current"></span>
           <span id="dims" class="muted"></span>
           <span class="spacer"></span>
-          <span class="muted">drag to rotate · scroll to zoom · right-drag to pan</span>
+          <span class="muted hint-pointer">drag to rotate · scroll to zoom · right-drag to pan</span>
+          <span class="muted hint-touch">drag to rotate · pinch to zoom · two fingers to pan</span>
         </div>
       </div>
 
       <div class="panel">
-        <h3>Files</h3>
+        <h3>Files <span class="panel-hint">— click a model file to preview it</span></h3>
         <ul class="file-list" id="file-list"></ul>
         <div class="dropzone" id="dropzone">
           Drop files here or click to upload<br>
@@ -189,7 +190,7 @@ async function renderDetail(id) {
       </div>
 
       <div class="panel">
-        <h3>Photos of your prints</h3>
+        <h3>Photos of your prints <span class="panel-hint">— ★ picks the library thumbnail</span></h3>
         <div class="gallery" id="gallery"></div>
       </div>
     </div>
@@ -345,26 +346,58 @@ async function renderDetail(id) {
     location.hash = '#/';
   });
 
-  // ---- files & gallery ----
+  // ---- files, gallery & viewer ----
+  const VIEWABLE = ['stl', 'obj', '3mf'];
+  const isViewable = (f) => VIEWABLE.includes(f.name.split('.').pop().toLowerCase());
+
+  let currentFiles = m.files || [];
+  let selectedFileId = null;                                   // model file shown in the viewer
+  let displayedFileId = null;                                  // what the viewer actually has loaded
+  let pinnedCoverId = m.cover_pinned ? m.cover_file_id : null; // explicit primary image, if any
+  let viewerLoadToken = 0;
+
   function refreshFileViews(files) {
+    currentFiles = files;
+    const viewable = files.filter(isViewable);
+    if (!viewable.some((f) => f.id === selectedFileId)) {
+      selectedFileId = viewable.length ? viewable[0].id : null;
+    }
     renderFileList(files);
     renderGallery(files);
-    setupViewerFiles(files);
+    showSelectedInViewer();
   }
 
   function renderFileList(files) {
     const list = document.getElementById('file-list');
     const nonImages = files.filter((f) => f.kind !== 'image');
     list.innerHTML = nonImages.length
-      ? nonImages.map((f) => `
-        <li class="file-row" data-fid="${f.id}">
-          <span class="file-kind ${f.kind}">${f.kind === 'model' ? f.name.split('.').pop() : f.kind}</span>
+      ? nonImages.map((f) => {
+          const viewable = isViewable(f);
+          const cls = ['file-row', viewable ? 'viewable' : '', f.id === selectedFileId ? 'selected' : '']
+            .filter(Boolean).join(' ');
+          return `
+        <li class="${cls}" data-fid="${f.id}"${viewable ? ' tabindex="0" role="button" title="Show this file in the 3D preview"' : ''}>
+          <span class="file-kind ${f.kind}">${f.kind === 'model' ? esc(f.name.split('.').pop()) : f.kind}</span>
           <span class="name" title="${esc(f.name)}">${esc(f.name)}</span>
+          ${viewable ? '<span class="viewing-tag">viewing</span>' : ''}
           <span class="size">${fmtSize(f.size)}</span>
-          <a class="btn btn-sm" href="/api/files/${f.id}/download">↓</a>
+          <a class="btn btn-sm" href="/api/files/${f.id}/download" title="Download">↓</a>
           <button class="btn btn-sm btn-danger del-file" title="Delete file">✕</button>
-        </li>`).join('')
+        </li>`;
+        }).join('')
       : `<li class="muted">No files yet — add the model files below.</li>`;
+
+    list.querySelectorAll('.file-row.viewable').forEach((row) => {
+      const pick = () => selectFile(Number(row.dataset.fid));
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('a, button')) return; // download / delete keep their own behaviour
+        pick();
+      });
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
+      });
+    });
+
     list.querySelectorAll('.del-file').forEach((btn) => {
       btn.addEventListener('click', async (e) => {
         const row = e.target.closest('.file-row');
@@ -374,14 +407,31 @@ async function renderDetail(id) {
     });
   }
 
+  function selectFile(fid) {
+    if (fid === selectedFileId) return;
+    selectedFileId = fid;
+    document.querySelectorAll('#file-list .file-row').forEach((row) => {
+      row.classList.toggle('selected', Number(row.dataset.fid) === selectedFileId);
+    });
+    showSelectedInViewer();
+    // on phones the preview sits above the list, so bring it back into view
+    if (window.matchMedia('(max-width: 720px)').matches) {
+      document.getElementById('viewer-wrap').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
   function renderGallery(files) {
     const g = document.getElementById('gallery');
     const images = files.filter((f) => f.kind === 'image');
+    // the library card falls back to the first photo when nothing has been pinned
+    const primaryId = images.some((f) => f.id === pinnedCoverId) ? pinnedCoverId : (images[0] || {}).id || null;
     g.innerHTML = images.length
       ? images.map((f) => `
-        <div class="shot" data-fid="${f.id}">
+        <div class="shot${f.id === primaryId ? ' primary' : ''}" data-fid="${f.id}">
           <img src="/api/files/${f.id}/raw" loading="lazy" alt="${esc(f.name)}">
+          <button class="star${f.id === primaryId ? ' on' : ''}" title="${f.id === primaryId ? 'Primary image' : 'Use as primary image'}" aria-label="Use as primary image">${f.id === primaryId ? '★' : '☆'}</button>
           <button class="del" title="Delete photo">✕</button>
+          ${f.id === primaryId ? '<span class="primary-tag">Primary</span>' : ''}
         </div>`).join('')
       : `<span class="muted">No photos yet — drop some in the upload box.</span>`;
     g.querySelectorAll('img').forEach((img) => {
@@ -389,6 +439,12 @@ async function renderDetail(id) {
         const lb = document.getElementById('lightbox');
         lb.querySelector('img').src = img.src;
         lb.classList.add('show');
+      });
+    });
+    g.querySelectorAll('.star').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const shot = e.target.closest('.shot');
+        setPrimaryImage(Number(shot.dataset.fid));
       });
     });
     g.querySelectorAll('.del').forEach((btn) => {
@@ -400,28 +456,39 @@ async function renderDetail(id) {
     });
   }
 
+  async function setPrimaryImage(fid) {
+    if (fid === pinnedCoverId) return;
+    try {
+      const updated = await api(`/api/models/${id}`, { method: 'PATCH', body: { cover_file_id: fid } });
+      pinnedCoverId = updated.cover_pinned ? updated.cover_file_id : null;
+      renderGallery(currentFiles);
+      flashSaved();
+      toast('Primary image set');
+    } catch (e) {
+      toast(`Could not set primary image: ${e.message}`, true);
+    }
+  }
+
   document.getElementById('lightbox').addEventListener('click', (e) => e.currentTarget.classList.remove('show'));
 
-  // ---- 3D viewer ----
-  const VIEWABLE = ['stl', 'obj', '3mf'];
-  let viewerLoadToken = 0;
-
-  async function setupViewerFiles(files) {
-    const sel = document.getElementById('viewer-file');
+  function showSelectedInViewer() {
     const msg = document.getElementById('viewer-msg');
-    const viewable = files.filter((f) => VIEWABLE.includes(f.name.split('.').pop().toLowerCase()));
-    sel.innerHTML = viewable.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join('');
-    sel.style.display = viewable.length > 1 ? '' : 'none';
-
-    if (!viewable.length) {
+    const dims = document.getElementById('dims');
+    const current = document.getElementById('viewer-current');
+    const f = currentFiles.find((x) => x.id === selectedFileId);
+    if (!f) {
+      current.textContent = '';
+      dims.textContent = '';
       msg.innerHTML = 'No viewable model file yet.<br>Upload an <b>.stl</b>, <b>.obj</b> or <b>.3mf</b> to see it here.';
-      document.getElementById('dims').textContent = '';
+      viewerLoadToken++; // cancel anything still in flight
+      displayedFileId = null;
       viewer?.clear();
       return;
     }
+    current.textContent = f.name;
+    if (f.id === displayedFileId && viewer) return; // already on screen (e.g. after an upload)
     msg.textContent = '';
-    sel.onchange = () => loadIntoViewer(viewable.find((f) => f.id === Number(sel.value)));
-    loadIntoViewer(viewable[0]);
+    loadIntoViewer(f);
   }
 
   async function loadIntoViewer(f) {
@@ -439,12 +506,14 @@ async function renderDetail(id) {
       const info = await viewer.load(`/api/files/${f.id}/raw`, ext);
       if (token !== viewerLoadToken) return;
       msg.textContent = '';
+      displayedFileId = f.id;
       const d = info.dimensions;
       dims.textContent = `${d.x.toFixed(1)} × ${d.y.toFixed(1)} × ${d.z.toFixed(1)} mm`;
     } catch (e) {
       if (token !== viewerLoadToken) return;
       msg.textContent = `Could not preview: ${e.message}`;
       dims.textContent = '';
+      displayedFileId = null; // let a later refresh retry
     }
   }
 

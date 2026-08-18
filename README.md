@@ -5,16 +5,17 @@ A self-hosted library for your 3D print files. Store your STL/3MF/OBJ/GCODE file
 ## Features
 
 - **In-browser 3D viewer** for `.stl`, `.obj`, and `.3mf` files (Three.js — rotate, zoom, pan, model dimensions shown), plus storage for `.gcode` and anything else
-- **Multi-file items** — one item can hold any number of model files (multi-part prints); pick which file to preview from a dropdown in the viewer
+- **Multi-file items** — one item can hold any number of model files (multi-part prints); click any model file in the file list to highlight it and load it into the viewer
 - **Collections** — group items into collections (an item can be in several), filter the library by collection
 - **Print tracking** — a simple Printed / Not printed toggle with filtering
-- **Photos** — upload pictures of your finished prints, shown as a gallery and used as the library thumbnail
+- **Photos** — upload pictures of your finished prints, shown as a gallery; star one to make it the primary image used as the library thumbnail (otherwise the first photo is used)
 - **Printer settings** — printer, filament, temps, layer height, infill, supports, print time, plus free-form notes
 - **Source URL** stored per model with a one-click link back
 - **URL import** — paste a link and PrintVault creates the entry for you:
   - **Direct file links** (`.stl` `.3mf` `.obj` `.gcode` `.zip`): downloaded automatically
   - **Thingiverse**: with a free API token, downloads *all files and images* automatically; without one, grabs the title + cover image
   - **Printables / MakerWorld / Cults3D**: these sites require login for downloads, so PrintVault grabs the title, description, and cover image, and you drag the files in after downloading them in your browser
+- **Mobile friendly** — the library, viewer, and file list all reflow for phone-sized screens
 - Single SQLite database + flat file storage — trivial to back up
 - No accounts, no cloud, no external services required
 

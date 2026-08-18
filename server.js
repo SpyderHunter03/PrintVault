@@ -40,7 +40,10 @@ function rowToModel(row, withFiles = false) {
     updated_at: row.updated_at,
   };
   const files = db.prepare('SELECT * FROM files WHERE model_id = ? ORDER BY id').all(row.id);
-  model.cover_file_id = (files.find((f) => f.kind === 'image') || {}).id || null;
+  const images = files.filter((f) => f.kind === 'image');
+  const pinned = row.cover_file_id ? images.find((f) => f.id === row.cover_file_id) : null;
+  model.cover_file_id = (pinned || images[0] || {}).id || null;
+  model.cover_pinned = !!pinned;
   model.file_counts = files.reduce((acc, f) => ((acc[f.kind] = (acc[f.kind] || 0) + 1), acc), {});
   model.collections = db
     .prepare(
@@ -118,6 +121,22 @@ app.patch('/api/models/:id', (req, res) => {
   const row = getModelOr404(req.params.id, res);
   if (!row) return;
   const b = req.body || {};
+
+  let coverFileId = row.cover_file_id;
+  if (b.cover_file_id !== undefined) {
+    if (b.cover_file_id === null || b.cover_file_id === '') {
+      coverFileId = null;
+    } else {
+      const f = db
+        .prepare('SELECT * FROM files WHERE id = ? AND model_id = ?')
+        .get(Number(b.cover_file_id), row.id);
+      if (!f || f.kind !== 'image') {
+        return res.status(400).json({ error: 'cover_file_id must be an image belonging to this model' });
+      }
+      coverFileId = f.id;
+    }
+  }
+
   const next = {
     title: b.title !== undefined ? String(b.title).slice(0, 300) : row.title,
     source_url: b.source_url !== undefined ? String(b.source_url).slice(0, 2000) : row.source_url,
@@ -126,8 +145,8 @@ app.patch('/api/models/:id', (req, res) => {
     printed: b.printed !== undefined ? (b.printed ? 1 : 0) : row.printed,
   };
   db.prepare(
-    `UPDATE models SET title=?, source_url=?, notes=?, settings=?, printed=?, updated_at=datetime('now') WHERE id=?`
-  ).run(next.title, next.source_url, next.notes, next.settings, next.printed, row.id);
+    `UPDATE models SET title=?, source_url=?, notes=?, settings=?, printed=?, cover_file_id=?, updated_at=datetime('now') WHERE id=?`
+  ).run(next.title, next.source_url, next.notes, next.settings, next.printed, coverFileId, row.id);
   res.json(rowToModel(db.prepare('SELECT * FROM models WHERE id = ?').get(row.id), true));
 });
 
@@ -185,6 +204,7 @@ app.delete('/api/files/:id', (req, res) => {
   const f = findFile(req.params.id);
   if (!f) return res.status(404).json({ error: 'File not found' });
   db.prepare('DELETE FROM files WHERE id = ?').run(f.id);
+  db.prepare('UPDATE models SET cover_file_id = NULL WHERE cover_file_id = ?').run(f.id);
   fs.rm(path.join(FILES_DIR, f.stored_name), { force: true }, () => {});
   res.json({ ok: true });
 });

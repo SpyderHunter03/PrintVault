@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS models (
   printed INTEGER NOT NULL DEFAULT 0,
   notes TEXT DEFAULT '',
   settings TEXT DEFAULT '{}',
+  cover_file_id INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -49,5 +50,11 @@ CREATE TABLE IF NOT EXISTS model_collections (
   PRIMARY KEY (model_id, collection_id)
 );
 `);
+
+// ---------- migrations for databases created before a column existed ----------
+const modelColumns = db.prepare('PRAGMA table_info(models)').all().map((c) => c.name);
+if (!modelColumns.includes('cover_file_id')) {
+  db.exec('ALTER TABLE models ADD COLUMN cover_file_id INTEGER');
+}
 
 module.exports = { db, DATA_DIR, FILES_DIR };

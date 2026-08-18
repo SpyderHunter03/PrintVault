@@ -267,3 +267,146 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 }
 .coll-item:hover { background: var(--bg-3); }
 .coll-item input { accent-color: var(--accent); }
+
+/* ---------- selectable file rows ---------- */
+.panel h3 .panel-hint {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: .9em;
+  color: var(--muted);
+}
+
+.file-row.viewable { cursor: pointer; }
+.file-row.viewable:hover { border-color: var(--accent); background: rgba(79,140,255,.07); }
+.file-row.viewable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.file-row.selected {
+  border-color: var(--accent);
+  background: rgba(79,140,255,.14);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.file-row.selected .name { font-weight: 600; }
+.viewing-tag {
+  display: none;
+  font-size: .7em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(79,140,255,.2);
+  color: var(--accent);
+  white-space: nowrap;
+}
+.file-row.selected .viewing-tag { display: inline-block; }
+
+.viewer-current {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 45%;
+}
+.hint-touch { display: none; }
+@media (hover: none) and (pointer: coarse) {
+  .hint-pointer { display: none; }
+  .hint-touch { display: inline; }
+}
+
+/* ---------- primary image ---------- */
+.gallery .shot.primary { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.gallery .shot .star {
+  position: absolute; top: 4px; left: 4px;
+  background: rgba(0,0,0,.6); color: #fff; border: none; border-radius: 6px;
+  cursor: pointer; padding: 2px 7px; font-size: 13px; line-height: 1.4;
+}
+.gallery .shot .star:hover { color: var(--accent); }
+.gallery .shot .star.on { color: #ffc94a; cursor: default; }
+.gallery .shot .primary-tag {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: rgba(79,140,255,.85); color: #fff;
+  font-size: .7em; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  text-align: center; padding: 3px 0; pointer-events: none;
+}
+
+/* ---------- mobile ---------- */
+@media (max-width: 720px) {
+  html, body { -webkit-text-size-adjust: 100%; }
+
+  /* the bar is three rows tall on a phone — let it scroll away instead of eating the screen */
+  .topbar { position: static; padding: 10px 12px; gap: 10px; }
+  .topbar-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; justify-content: stretch; }
+  #search { grid-column: 1 / -1; width: 100%; }
+  .topbar-actions .btn, .topbar-actions select { width: 100%; }
+
+  /* 16px keeps iOS Safari from zooming in when a field is focused */
+  input, select, textarea { font-size: 16px; padding: 10px 12px; }
+  .btn { padding: 10px 14px; }
+  .btn-sm { padding: 6px 12px; }
+
+  main { padding: 12px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .card:hover { transform: none; }
+  .card-body { padding: 8px 10px 10px; }
+
+  .panel { padding: 12px; margin-bottom: 14px; }
+  .empty { padding: 48px 16px; }
+
+  .detail-head {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "back   .      del"
+      "title  title  title"
+      "toggle toggle saved";
+    gap: 10px;
+    align-items: center;
+  }
+  .detail-head > a.btn { grid-area: back; justify-self: start; }
+  .detail-head #btn-delete { grid-area: del; justify-self: end; }
+  .detail-head h1 { grid-area: title; font-size: 1.3em; min-width: 0; }
+  .detail-head .toggle { grid-area: toggle; justify-self: start; }
+  .detail-head #save-ind { grid-area: saved; justify-self: end; }
+
+  #viewer { aspect-ratio: 4 / 3; min-height: 240px; }
+  .viewer-toolbar { font-size: .9em; }
+  .viewer-current { max-width: 100%; flex: 1 1 100%; }
+  .viewer-toolbar .spacer { display: none; }
+
+  /* two lines: name on top, size + actions underneath, so nothing gets squeezed */
+  .file-row {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto auto;
+    grid-template-areas:
+      "kind name name name name"
+      "tag  size .    dl   del";
+    gap: 8px;
+    padding: 10px;
+  }
+  .file-row .file-kind { grid-area: kind; justify-self: start; }
+  .file-row .name { grid-area: name; }
+  .file-row .viewing-tag { grid-area: tag; }
+  .file-row .size { grid-area: size; }
+  .file-row > a.btn { grid-area: dl; }
+  .file-row .del-file { grid-area: del; }
+  .file-row > a.btn, .file-row .del-file { min-width: 44px; text-align: center; }
+
+  .dropzone { padding: 18px 12px; }
+  .gallery { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+  .gallery .shot .del, .gallery .shot .star { padding: 5px 9px; font-size: 14px; }
+
+  .settings-grid { grid-template-columns: 1fr; }
+  .coll-list { max-height: none; }
+  .coll-item { padding: 8px; }
+
+  .dlg-body { padding: 16px; }
+  .dlg-actions .btn { flex: 1; }
+}
+
+@media (max-width: 420px) {
+  .panel h3 .panel-hint { display: none; }
+}
+
+@media (max-width: 330px) {
+  .grid { grid-template-columns: 1fr; }
+}
